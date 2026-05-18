@@ -1,0 +1,10 @@
+jobs:
+  run-bash:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Run inline script
+        run: |
+          git checkout main
+          echo "Currently on branch:"
+          git branch --show-current
+          bash ./start.sh
