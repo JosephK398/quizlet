@@ -1,70 +1,109 @@
 /**
- * QuizBlast Server — index.js
- * Express + Socket.IO backend for real-time quiz gameplay.
+ * QuizBlast Server
+ * Express + Socket.IO backend
  */
 
-const express  = require('express');
-const http     = require('http');
-const { Server } = require('socket.io');
-const cors     = require('cors');
-const path     = require('path');
+const express = require("express");
+const http = require("http");
+const cors = require("cors");
+const { Server } = require("socket.io");
 
-const { initDB }       = require('./db');
-const quizRoutes       = require('./routes/quiz');
-const setupGameHandlers = require('./socket/gameHandler');
+const { initDB } = require("./db");
+const quizRoutes = require("./routes/quiz");
+const setupGameHandlers = require("./socket/gameHandler");
 
-const app    = express();
+const app = express();
 const server = http.createServer(app);
 
-// ─── Socket.IO setup ─────────────────────────────────────────────────────────
-const io = new Server(server, {
-  cors: {
-    origin: process.env.CLIENT_ORIGIN || '*',
-    methods: ['GET', 'POST'],
-  },
-  // Tune for low-latency LAN use
-  pingInterval: 10000,
-  pingTimeout: 5000,
-});
+const PORT = process.env.PORT || 3001;
+const CLIENT_ORIGIN =
+  process.env.CLIENT_ORIGIN || "http://localhost:5173";
 
 // ─── Middleware ───────────────────────────────────────────────────────────────
-app.use(cors({ origin: '*' }));
-app.use(express.json({ limit: '10mb' }));
 
-// ─── REST routes ─────────────────────────────────────────────────────────────
-app.use('/api/quiz', quizRoutes);
-
-app.get('/api/health', (_req, res) =>
-  res.json({ status: 'ok', timestamp: new Date().toISOString() })
-);
-
-// ─── Serve built client (production) ─────────────────────────────────────────
-const clientDist = path.join(__dirname, '..', 'client', 'dist');
-app.use(express.static(clientDist));
-app.get('*', (_req, res) =>
-  res.sendFile(path.join(clientDist, 'index.html'), (err) => {
-    if (err) res.status(200).send('QuizBlast API running. Start the dev client separately.');
+app.use(
+  cors({
+    origin: CLIENT_ORIGIN,
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    credentials: true
   })
 );
 
-// ─── Global error handler — always returns JSON, never an empty body ─────────
-// Must be defined AFTER all routes (4-argument signature required by Express).
-app.use((err, req, res, next) => { // eslint-disable-line no-unused-vars
-  if (err.type === 'entity.parse.failed') {
-    return res.status(400).json({ error: 'Invalid JSON in request body.' });
+app.use(express.json({ limit: "10mb" }));
+
+// ─── Health check ────────────────────────────────────────────────────────────
+
+app.get("/api/health", (_req, res) => {
+  res.json({
+    status: "ok",
+    timestamp: new Date().toISOString()
+  });
+});
+
+// ─── REST API routes ─────────────────────────────────────────────────────────
+// Your frontend must call /api/quiz, not /api/quizzes.
+
+app.use("/api/quiz", quizRoutes);
+
+// ─── Error handling ──────────────────────────────────────────────────────────
+
+app.use((err, _req, res, _next) => {
+  console.error("Unhandled server error:", err);
+
+  if (err.type === "entity.parse.failed") {
+    return res.status(400).json({
+      error: "Invalid JSON in request body."
+    });
   }
-  console.error('Unhandled server error:', err.message);
-  res.status(err.status || 500).json({ error: err.message || 'Internal server error' });
+
+  res.status(err.status || 500).json({
+    error: err.message || "Internal server error"
+  });
 });
 
-// ─── Initialise DB & WebSocket handlers ──────────────────────────────────────
-initDB();
-setupGameHandlers(io);
+// ─── Socket.IO ───────────────────────────────────────────────────────────────
 
-// ─── Start listening ──────────────────────────────────────────────────────────
-const PORT = process.env.PORT || 3001;
-server.listen(PORT, '0.0.0.0', () => {
-  console.log(`\n⚡  QuizBlast server running`);
-  console.log(`   Local:   http://localhost:${PORT}`);
-  console.log(`   Network: http://0.0.0.0:${PORT}\n`);
+const io = new Server(server, {
+  cors: {
+    origin: CLIENT_ORIGIN,
+    methods: ["GET", "POST"],
+    credentials: true
+  },
+  pingInterval: 10000,
+  pingTimeout: 5000
 });
+
+// ─── Start application ───────────────────────────────────────────────────────
+
+try {
+  initDB();
+  setupGameHandlers(io);
+
+  server.listen(PORT, "0.0.0.0", () => {
+    console.log("QuizBlast server running");
+    console.log(`Port: ${PORT}`);
+    console.log(`Client origin: ${CLIENT_ORIGIN}`);
+  });
+} catch (error) {
+  console.error("Failed to start QuizBlast server:", error);
+  process.exit(1);
+}
+
+// ─── Graceful shutdown ───────────────────────────────────────────────────────
+
+function shutdown(signal) {
+  console.log(`${signal} received. Shutting down...`);
+
+  server.close(() => {
+    console.log("HTTP server closed");
+    process.exit(0);
+  });
+
+  setTimeout(() => {
+    console.error("Forced shutdown");
+    process.exit(1);
+  }, 10000);
+}
+
+process.on("SIGTERM", () => shutdown("SIGTERM"));
+process.on("SIGINT", () => shutdown("SIGINT"));
