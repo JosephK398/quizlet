@@ -31,6 +31,26 @@ function loadFromDisk() {
 }
 
 function saveToDisk() {
+  if (process.env.VERCEL) {
+    console.warn("Skipping file write on Vercel");
+    return;
+  }
+
+  ensureDir();
+
+  const tmp = DB_FILE + ".tmp";
+
+  fs.writeFileSync(
+    tmp,
+    JSON.stringify(store, null, 2),
+    "utf8"
+  );
+
+  fs.renameSync(tmp, DB_FILE);
+}
+
+
+function saveToDisk_ORIG() {
   ensureDir();
   try {
     // Write to a temp file first, then rename — prevents data corruption on crash
