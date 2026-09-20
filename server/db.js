@@ -57,7 +57,9 @@ function initDB() {
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     });
-    saveToDisk();
+    if (!process.env.VERCEL) {
+      saveToDisk();
+    }
     console.log('✅  Sample quiz seeded');
   }
   console.log(`✅  Data store ready: ${DB_FILE} (${store.quizzes.length} quiz/quizzes)`);
